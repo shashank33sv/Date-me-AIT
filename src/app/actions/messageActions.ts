@@ -28,7 +28,6 @@ export async function createMessage(recipientUserId: string, data: MessageSchema
 
     const messageDto = mapMessageToMessageDto(message);
 
-    // 🛠 Try sending Pusher events, but even if it fails, continue
     try {
         await pusherServer.trigger(createChatId(userId, recipientUserId), 'message:new', messageDto);
         await pusherServer.trigger(`private-${recipientUserId}`, 'message:new', messageDto);
