@@ -33,7 +33,9 @@ export function truncateString(text?: string | null, num = 50) {
 }
 
 export function createChatId(a: string, b: string) {
-    return a > b ? `${b}-${a}` : `${a}-${b}`
+    const clean = (str: string) => str.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const [first, second] = a > b ? [b, a] : [a, b];
+    return `${clean(first)}-${clean(second)}`;
 }
 
 export function timeAgo(date: string) {

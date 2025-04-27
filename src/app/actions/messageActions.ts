@@ -9,34 +9,36 @@ import { pusherServer } from '@/lib/pusher';
 import { createChatId } from '@/lib/util';
 
 export async function createMessage(recipientUserId: string, data: MessageSchema): Promise<ActionResult<MessageDto>> {
+    const userId = await getAuthUserId();
+
+    const validated = messageSchema.safeParse(data);
+
+    if (!validated.success) return { status: 'error', error: validated.error.errors }
+
+    const { text } = validated.data;
+
+    const message = await prisma.message.create({
+        data: {
+            text,
+            recipientId: recipientUserId,
+            senderId: userId
+        },
+        select: messageSelect
+    });
+
+    const messageDto = mapMessageToMessageDto(message);
+
+    // 🛠 Try sending Pusher events, but even if it fails, continue
     try {
-        const userId = await getAuthUserId();
-
-        const validated = messageSchema.safeParse(data);
-
-        if (!validated.success) return { status: 'error', error: validated.error.errors }
-
-        const { text } = validated.data;
-
-        const message = await prisma.message.create({
-            data: {
-                text,
-                recipientId: recipientUserId,
-                senderId: userId
-            },
-            select: messageSelect
-        });
-        const messageDto = mapMessageToMessageDto(message);
-
         await pusherServer.trigger(createChatId(userId, recipientUserId), 'message:new', messageDto);
         await pusherServer.trigger(`private-${recipientUserId}`, 'message:new', messageDto);
-
-        return { status: 'success', data: messageDto };
     } catch (error) {
-        console.log(error);
-        return { status: 'error', error: 'Something went wrong' }
+        console.error('Pusher error (ignored)', error);
     }
+
+    return { status: 'success', data: messageDto };
 }
+
 
 export async function getMessageThread(recipientId: string) {
     try {
@@ -61,7 +63,7 @@ export async function getMessageThread(recipientId: string) {
                 created: 'asc'
             },
             select: messageSelect
-        })
+        });
 
         let readCount = 0;
 
@@ -72,21 +74,27 @@ export async function getMessageThread(recipientId: string) {
                     && m.sender?.userId === recipientId)
                 .map(m => m.id);
 
-            await prisma.message.updateMany({
-                where: {
-                    senderId: recipientId,
-                    recipientId: userId,
-                    dateRead: null
-                },
-                data: { dateRead: new Date() }
-            })
+            if (unreadMessageIds.length > 0) {
+                await prisma.message.updateMany({
+                    where: {
+                        senderId: recipientId,
+                        recipientId: userId,
+                        dateRead: null
+                    },
+                    data: { dateRead: new Date() }
+                });
 
-            readCount = unreadMessageIds.length;
+                readCount = unreadMessageIds.length;
 
-            await pusherServer.trigger(createChatId(recipientId, userId), 'messages:read', unreadMessageIds);
+                await pusherServer.trigger(
+                    createChatId(recipientId, userId),
+                    'messages:read',
+                    { unreadMessageIds } 
+                );
+            }
         }
 
-        return { messages: messages.map(message => mapMessageToMessageDto(message)), readCount }
+        return { messages: messages.map(message => mapMessageToMessageDto(message)), readCount };
     } catch (error) {
         console.log(error);
         throw error;
@@ -100,7 +108,7 @@ export async function getMessagesByContainer(container?: string | null, cursor?:
         const conditions = {
             [container === 'outbox' ? 'senderId' : 'recipientId']: userId,
             ...(container === 'outbox' ? { senderDeleted: false } : { recipientDeleted: false }),
-        }
+        };
 
         const messages = await prisma.message.findMany({
             where: {
@@ -120,12 +128,12 @@ export async function getMessagesByContainer(container?: string | null, cursor?:
             const nextItem = messages.pop();
             nextCursor = nextItem?.created.toISOString();
         } else {
-            nextCursor = undefined
+            nextCursor = undefined;
         }
 
         const messagesToReturn = messages.map(message => mapMessageToMessageDto(message));
 
-        return { messages: messagesToReturn, nextCursor }
+        return { messages: messagesToReturn, nextCursor };
     } catch (error) {
         console.log(error);
         throw error;
@@ -143,7 +151,7 @@ export async function deleteMessage(messageId: string, isOutbox: boolean) {
             data: {
                 [selector]: true
             }
-        })
+        });
 
         const messagesToDelete = await prisma.message.findMany({
             where: {
@@ -160,14 +168,14 @@ export async function deleteMessage(messageId: string, isOutbox: boolean) {
                     }
                 ]
             }
-        })
+        });
 
         if (messagesToDelete.length > 0) {
             await prisma.message.deleteMany({
                 where: {
                     OR: messagesToDelete.map(m => ({ id: m.id }))
                 }
-            })
+            });
         }
     } catch (error) {
         console.log(error);
@@ -185,7 +193,7 @@ export async function getUnreadMessageCount() {
                 dateRead: null,
                 recipientDeleted: false
             }
-        })
+        });
     } catch (error) {
         console.log(error);
         throw error;
@@ -211,4 +219,4 @@ const messageSelect = {
             image: true
         }
     }
-}
+};
