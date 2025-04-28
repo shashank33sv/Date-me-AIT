@@ -1,5 +1,6 @@
 #Date me@AIT
->I developed Date Me@AIT, a college dating app designed for students to connect, share interests, and foster meaningful relationships. This app was built to streamline the dating process for college students by providing a platform for real-time communication and easy navigation.
+
+I developed Date Me@AIT, a college dating app designed for students to connect, share interests, and foster meaningful relationships. This app was built to streamline the dating process for college students by providing a platform for real-time communication and easy navigation.
 
 >Key Features:
 >User Authentication: Integrated with NextAuth for secure user login via GitHub and Google.
